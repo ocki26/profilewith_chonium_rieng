@@ -1,0 +1,16 @@
+{
+  "name": "your-secure-browser-app",
+  "version": "1.0.0",
+  "description": "A secure browser with profile management using Electron and Playwright.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "electron": "^28.0.0",
+    "playwright": "^1.40.0"
+  }
+}
