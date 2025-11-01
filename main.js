@@ -1,15 +1,70 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const fs = require("fs");
-const { chromium } = require("playwright");
+const { chromium } = require("playwright-extra");
+const stealth = require("puppeteer-extra-plugin-stealth")();
+const UserAgent = require("user-agents");
+const fetch = require("node-fetch");
 
-// Đường dẫn đến thư mục profiles
+// Áp dụng stealth plugin cho chromium
+chromium.use(stealth);
+
+// Đường dẫn đến thư mục profiles và file proxies
 const PROFILES_DIR = path.join(__dirname, "profiles");
+const PROXIES_FILE = path.join(__dirname, "proxies.json");
 
 // Hàm tạo thư mục profile nếu chưa có
-function ensureProfilesDirectory() {
-  if (!fs.existsSync(PROFILES_DIR)) {
-    fs.mkdirSync(PROFILES_DIR);
+function ensureDirectory(dirPath) {
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true });
+  }
+}
+
+// Hàm đọc cấu hình proxy
+function readProxies() {
+  ensureDirectory(path.dirname(PROXIES_FILE));
+  if (fs.existsSync(PROXIES_FILE)) {
+    try {
+      return JSON.parse(fs.readFileSync(PROXIES_FILE, "utf-8"));
+    } catch (error) {
+      console.error("Error reading proxies.json:", error);
+      return [];
+    }
+  }
+  return [];
+}
+
+// Hàm ghi cấu hình proxy
+function writeProxies(proxies) {
+  ensureDirectory(path.dirname(PROXIES_FILE));
+  fs.writeFileSync(PROXIES_FILE, JSON.stringify(proxies, null, 2));
+}
+
+// Lấy múi giờ từ IP bằng Geolocation API
+async function getGeoInfoFromIp(ip) {
+  try {
+    const response = await fetch(`http://ip-api.com/json/${ip}`);
+    const data = await response.json();
+
+    if (data.status === "success" && data.timezone) {
+      return {
+        timezoneId: data.timezone,
+        latitude: data.lat,
+        longitude: data.lon,
+        countryCode: data.countryCode,
+        region: data.regionName,
+        city: data.city,
+      };
+    } else {
+      console.warn(
+        `Could not get geo info for IP ${ip}:`,
+        data.message || "Unknown error"
+      );
+      return null;
+    }
+  } catch (error) {
+    console.error(`Failed to fetch geo info for IP ${ip}:`, error);
+    return null;
   }
 }
 
@@ -21,19 +76,16 @@ function createWindow() {
     height: 800,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true, // Bảo mật hơn
-      nodeIntegration: false, // Bảo mật hơn
+      contextIsolation: true,
+      nodeIntegration: false,
     },
   });
 
   mainWindow.loadFile("index.html");
-
-  // Mở DevTools khi khởi động (chỉ dùng khi phát triển)
-  // mainWindow.webContents.openDevTools();
 }
 
 app.whenReady().then(() => {
-  ensureProfilesDirectory();
+  ensureDirectory(PROFILES_DIR);
   createWindow();
 
   app.on("activate", () => {
@@ -55,7 +107,7 @@ app.on("window-all-closed", () => {
 
 // Lấy danh sách profiles hiện có
 ipcMain.handle("get-profiles", async () => {
-  ensureProfilesDirectory();
+  ensureDirectory(PROFILES_DIR);
   try {
     const profileNames = fs
       .readdirSync(PROFILES_DIR, { withFileTypes: true })
@@ -88,75 +140,70 @@ ipcMain.handle("create-profile", async (event, profileName) => {
     fs.mkdirSync(profilePath);
     fs.mkdirSync(userDataDir);
 
-    // Ghi cấu hình mặc định ban đầu với nhiều thông số fingerprint hơn
+    const userAgent = new UserAgent({ deviceCategory: "desktop" }).toString();
+
+    // Ghi cấu hình mặc định ban đầu
     const defaultConfig = {
-      // User Agent: Rất quan trọng, nên thay đổi cho từng profile.
-      userAgent: `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36`,
-
-      // Kích thước cửa sổ (viewport): Nên khác nhau để tạo sự đa dạng.
+      userAgent: userAgent,
       viewport: { width: 1366, height: 768 },
-
-      // Ngôn ngữ: Thay đổi ngôn ngữ mà trình duyệt báo cáo.
-      locale: "en-US", // Ví dụ: 'en-US', 'vi-VN', 'fr-FR'
-
-      // Múi giờ: Quan trọng để khớp với IP hoặc địa lý mong muốn.
-      timezoneId: "America/New_York", // Ví dụ: 'Asia/Ho_Chi_Minh', 'Europe/London'
-
-      // Geolocation: Tọa độ địa lý (cần cờ --use-fake-location cho Chromium để hoạt động)
+      locale: "en-US",
+      timezoneId: "America/New_York",
       geolocation: {
         latitude: 34.052235,
         longitude: -118.243683,
         accuracy: 20,
-      }, // Los Angeles
-
-      // Proxy: Cấu hình proxy riêng cho từng profile (nếu bạn có proxy)
-      // Cấu trúc có thể là { server: 'http://ip:port', username: 'user', password: 'password' }
-      proxy: null, // Mặc định là null, bạn có thể chỉnh sửa trong config.json
-
-      // Các thông số khác mà Playwright có thể điều khiển trực tiếp
-      acceptDownloads: true, // Cho phép tải xuống
-
-      // Các cờ CLI cho Chromium: Ảnh hưởng đến hành vi cấp thấp hơn
-      // Đây là một mảng string, mỗi phần tử là một cờ CLI.
+      },
+      proxyName: null,
+      acceptDownloads: true,
       chromiumArgs: [
-        "--no-sandbox", // Luôn nên có khi chạy với root hoặc trong môi trường docker
+        "--no-sandbox",
         "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage", // Hữu ích cho môi trường Linux/Docker
-        "--disable-accelerated-2d-canvas", // Có thể ảnh hưởng đến Canvas fingerprinting
-        "--disable-gpu", // Vô hiệu hóa GPU, ảnh hưởng đến WebGL
-        "--use-fake-location", // Quan trọng cho Geolocation giả mạo
-        // '--blink-settings=imagesEnabled=false', // Tắt hình ảnh (ví dụ)
-        // '--enable-features=NetworkServiceInProcess', // Giảm thiểu rò rỉ WebRTC
-        // '--use-fake-ui-for-media-stream', // Để tránh popup camera/mic
-        // '--use-fake-device-for-media-stream', // Sử dụng thiết bị giả cho media stream
-        // '--window-size=1366,768', // Kích thước cửa sổ cũng có thể đặt ở đây hoặc qua viewport
+        "--disable-dev-shm-usage",
+        "--use-fake-location",
+        "--hide-scrollbars",
+        "--mute-audio",
       ],
-
-      // Các script JavaScript để tiêm vào mọi trang để spoofing các API DOM
-      // Đây là mảng các chuỗi code JavaScript hoặc đường dẫn đến file JS
       initScripts: [
-        // Ghi đè navigator.webdriver để ẩn việc là bot
         `Object.defineProperty(navigator, 'webdriver', { get: () => false });`,
-        // Ghi đè các hàm để spoofing Canvas API (đây chỉ là ví dụ đơn giản)
-        // Cần phức tạp hơn để thực sự hiệu quả.
         `
-        const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
-        HTMLCanvasElement.prototype.toDataURL = function() {
-            console.log('Spoofing Canvas toDataURL!');
-            // Thêm nhiễu hoặc thay đổi dữ liệu canvas ở đây
-            return originalToDataURL.apply(this, arguments); // Vẫn gọi hàm gốc
-        };
-        const originalGetContext = HTMLCanvasElement.prototype.getContext;
-        HTMLCanvasElement.prototype.getContext = function(contextType, contextAttributes) {
-            const context = originalGetContext.apply(this, arguments);
-            if (contextType === 'webgl' || contextType === 'webgl2') {
-                // Có thể spoof các hàm của WebGL context ở đây
-                // Ví dụ: context.getParameter = (param) => { if (param === context.RENDERER) return 'WebGL Renderer (spoofed)'; return originalGetParameter.call(context, param); };
-            }
-            return context;
-        };
+        (function() {
+          const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+          Object.defineProperty(HTMLCanvasElement.prototype, 'toDataURL', {
+              value: function() {
+                  const context = this.getContext('2d');
+                  if (context) {
+                      const imageData = context.getImageData(0, 0, 1, 1);
+                      const data = imageData.data;
+                      data[0] = (data[0] + Math.floor(Math.random() * 5)) % 256;
+                      data[1] = (data[1] + Math.floor(Math.random() * 5)) % 256;
+                      data[2] = (data[2] + Math.floor(Math.random() * 5)) % 256;
+                      context.putImageData(imageData, 0, 0);
+                  }
+                  return originalToDataURL.apply(this, arguments);
+              },
+              writable: true,
+              configurable: true
+          });
+        })();
         `,
-        // Thêm script để spoof WebGL, AudioContext, Fonts, v.v. tại đây
+        `
+        (function() {
+          if (window.AudioContext) {
+              const originalGetChannelData = AudioBuffer.prototype.getChannelData;
+              Object.defineProperty(AudioBuffer.prototype, 'getChannelData', {
+                  value: function() {
+                      const result = originalGetChannelData.apply(this, arguments);
+                      if (result.length > 0) {
+                          result[0] = result[0] + Math.random() * 0.000000001;
+                      }
+                      return result;
+                  },
+                  writable: true,
+                  configurable: true
+              });
+          }
+        })();
+        `,
       ],
     };
     fs.writeFileSync(configFile, JSON.stringify(defaultConfig, null, 2));
@@ -233,88 +280,187 @@ ipcMain.handle("update-profile-config", async (event, profileName, config) => {
   return { success: false, message: "Profile config not found." };
 });
 
-// Mở một trình duyệt mới với profile đã chọn
+// Mở một trình duyệt mới với profile đã chọn - ĐÃ SỬA TẤT CẢ LỖI
 ipcMain.handle(
   "open-browser",
   async (event, profileName, url = "https://bot.sannysoft.com/") => {
+    if (!profileName || typeof profileName !== "string") {
+      return { success: false, message: "Invalid profile name." };
+    }
     const profilePath = path.join(PROFILES_DIR, profileName);
     const userDataDir = path.join(profilePath, "user-data");
     const configFile = path.join(profilePath, "config.json");
 
-    if (
-      !fs.existsSync(profilePath) ||
-      !fs.existsSync(userDataDir) ||
-      !fs.existsSync(configFile)
-    ) {
+    if (!fs.existsSync(configFile)) {
       return {
         success: false,
-        message: `Profile '${profileName}' not found or incomplete.`,
+        message: `Profile config file not found for '${profileName}'.`,
       };
     }
 
+    let browserContext = null;
     try {
       const profileConfig = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+      let finalProxyConfig = null;
+      let finalTimezoneId = profileConfig.timezoneId;
+      let finalLocale = profileConfig.locale;
+      let finalGeolocation = profileConfig.geolocation;
 
-      // Các tùy chọn khởi chạy Persistent Context
+      // Nếu có proxyName được chọn trong profile, hãy tìm proxy đó
+      if (profileConfig.proxyName) {
+        const allProxies = readProxies();
+        const selectedProxy = allProxies.find(
+          (p) => p.name === profileConfig.proxyName
+        );
+        if (selectedProxy) {
+          finalProxyConfig = {
+            server: selectedProxy.server,
+            username: selectedProxy.username || undefined,
+            password: selectedProxy.password || undefined,
+          };
+          // Cập nhật múi giờ, locale VÀ GEOLOCATION từ proxy nếu có
+          if (selectedProxy.timezoneId) {
+            finalTimezoneId = selectedProxy.timezoneId;
+          }
+          if (selectedProxy.locale) {
+            finalLocale = selectedProxy.locale;
+          }
+          if (
+            selectedProxy.latitude !== undefined &&
+            selectedProxy.longitude !== undefined
+          ) {
+            finalGeolocation = {
+              latitude: selectedProxy.latitude,
+              longitude: selectedProxy.longitude,
+              accuracy: profileConfig.geolocation?.accuracy || 20,
+            };
+          }
+        } else {
+          console.warn(
+            `Selected proxy '${profileConfig.proxyName}' not found. Using profile's default network settings.`
+          );
+        }
+      }
+
+      // Tạo args array và thêm timezone/locale nếu có
+      const args = [...(profileConfig.chromiumArgs || [])];
+
+      // Thêm timezone và locale vào Chromium arguments
+      if (finalTimezoneId) {
+        args.push(`--timezone=${finalTimezoneId}`);
+      }
+      if (finalLocale) {
+        args.push(`--lang=${finalLocale}`);
+      }
+
+      // Thêm geolocation vào Chromium arguments
+      if (
+        finalGeolocation &&
+        finalGeolocation.latitude !== undefined &&
+        finalGeolocation.longitude !== undefined
+      ) {
+        args.push(`--use-fake-ui-for-media-stream`);
+        args.push(`--use-fake-device-for-media-stream`);
+      }
+
       const launchOptions = {
-        headless: false, // Mở trình duyệt có giao diện
-        // Áp dụng các cờ CLI từ cấu hình profile
-        args: profileConfig.chromiumArgs || [],
-        // Cấu hình Proxy nếu có
-        proxy: profileConfig.proxy || undefined,
-        // Áp dụng User Agent từ cấu hình profile
+        headless: false,
+        args: args, // Sử dụng args đã được cập nhật
+        proxy: finalProxyConfig || undefined,
         userAgent: profileConfig.userAgent || undefined,
-        // Áp dụng Locale (ngôn ngữ)
-        locale: profileConfig.locale || undefined,
-        // Áp dụng Múi giờ
-        timezoneId: profileConfig.timezoneId || undefined,
-        // Cho phép tải xuống
         acceptDownloads: profileConfig.acceptDownloads,
-
-        // Geolocation được đặt trực tiếp ở context level khi khởi tạo
-        // Đảm bảo `--use-fake-location` có trong profileConfig.chromiumArgs để cái này hoạt động
-        ...(profileConfig.geolocation &&
-          profileConfig.geolocation.latitude !== undefined && {
-            geolocation: profileConfig.geolocation,
-          }),
-        // Thêm các thông số khác có thể cấu hình trực tiếp ở context level
       };
 
-      const browserContext = await chromium.launchPersistentContext(
+      browserContext = await chromium.launchPersistentContext(
         userDataDir,
         launchOptions
       );
 
-      // Tạo một trang mới trong ngữ cảnh này
       const page = await browserContext.newPage();
 
-      // Áp dụng Viewport nếu có trong cấu hình
+      // SỬA LỖI: Thay thế evaluateOnNewDocument bằng evaluate để set geolocation
+      if (
+        finalGeolocation &&
+        finalGeolocation.latitude !== undefined &&
+        finalGeolocation.longitude !== undefined
+      ) {
+        // Override the geolocation API using standard evaluate
+        await page.evaluate((geolocation) => {
+          // Override geolocation functions
+          navigator.geolocation.getCurrentPosition = (
+            success,
+            error,
+            options
+          ) => {
+            const position = {
+              coords: {
+                latitude: geolocation.latitude,
+                longitude: geolocation.longitude,
+                accuracy: geolocation.accuracy || 20,
+                altitude: null,
+                altitudeAccuracy: null,
+                heading: null,
+                speed: null,
+              },
+              timestamp: Date.now(),
+            };
+            success(position);
+          };
+
+          navigator.geolocation.watchPosition = (success, error, options) => {
+            const position = {
+              coords: {
+                latitude: geolocation.latitude,
+                longitude: geolocation.longitude,
+                accuracy: geolocation.accuracy || 20,
+                altitude: null,
+                altitudeAccuracy: null,
+                heading: null,
+                speed: null,
+              },
+              timestamp: Date.now(),
+            };
+            success(position);
+            return 1; // return a watchId
+          };
+
+          navigator.geolocation.clearWatch = (watchId) => {
+            // Do nothing
+          };
+        }, finalGeolocation);
+      }
+
+      // Cấu hình Viewport nếu có
       if (
         profileConfig.viewport &&
         profileConfig.viewport.width &&
         profileConfig.viewport.height
       ) {
-        await page.setViewportSize(profileConfig.viewport);
+        await page.setViewportSize({
+          width: profileConfig.viewport.width,
+          height: profileConfig.viewport.height,
+        });
       }
 
-      // Tiêm các script khởi tạo nếu có trong cấu hình
+      // Tiêm các script khởi tạo
       if (
         profileConfig.initScripts &&
         Array.isArray(profileConfig.initScripts)
       ) {
-        for (const scriptContent of profileConfig.initScripts) {
-          await page.addInitScript({ content: scriptContent });
+        for (const script of profileConfig.initScripts) {
+          try {
+            await page.evaluate(script);
+          } catch (scriptError) {
+            console.error(
+              `Error injecting script into page for profile '${profileName}': ${scriptError.message}`,
+              script
+            );
+          }
         }
       }
 
-      // KHÔNG CẦN GỌI page.setGeolocation NỮA VÌ ĐÃ ĐƯỢC ĐẶT TRONG launchPersistentContext
-      // if (profileConfig.geolocation && profileConfig.geolocation.latitude !== undefined) {
-      //     await page.setGeolocation(profileConfig.geolocation); // Dòng này gây lỗi
-      // }
-
       await page.goto(url);
 
-      // Xử lý khi trình duyệt đóng (để giải phóng tài nguyên)
       browserContext.on("close", () => {
         console.log(`Browser context for profile '${profileName}' closed.`);
       });
@@ -325,6 +471,14 @@ ipcMain.handle(
       };
     } catch (error) {
       console.error("Error opening browser:", error);
+      // Đảm bảo đóng trình duyệt nếu có lỗi trong quá trình khởi tạo
+      if (browserContext) {
+        await browserContext
+          .close()
+          .catch((e) =>
+            console.error("Error closing browser context after failure:", e)
+          );
+      }
       return {
         success: false,
         message: `Failed to open browser: ${error.message}`,
@@ -332,3 +486,131 @@ ipcMain.handle(
     }
   }
 );
+
+// ====================================================================
+// Xử lý IPC cho Proxy Management
+// ====================================================================
+
+ipcMain.handle("get-proxies", async () => {
+  return readProxies();
+});
+
+ipcMain.handle("add-proxy", async (event, proxyConfig) => {
+  let proxies = readProxies();
+
+  if (!proxyConfig || !proxyConfig.name || !proxyConfig.server) {
+    return { success: false, message: "Invalid proxy configuration." };
+  }
+  if (proxies.some((p) => p.name === proxyConfig.name)) {
+    return {
+      success: false,
+      message: `Proxy '${proxyConfig.name}' already exists.`,
+    };
+  }
+
+  const ipMatch = proxyConfig.server.match(
+    /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/
+  );
+  if (ipMatch && ipMatch[1]) {
+    const geoInfo = await getGeoInfoFromIp(ipMatch[1]);
+    if (geoInfo) {
+      proxyConfig.timezoneId = geoInfo.timezoneId;
+      proxyConfig.latitude = geoInfo.latitude;
+      proxyConfig.longitude = geoInfo.longitude;
+      console.log(
+        `Auto-detected geo info for proxy ${proxyConfig.name}: ${JSON.stringify(
+          geoInfo
+        )}`
+      );
+    } else {
+      console.warn(
+        `Could not auto-detect geo info for proxy ${proxyConfig.name}.`
+      );
+    }
+  } else {
+    console.warn(
+      `Could not extract IP from proxy server string for ${proxyConfig.name}.`
+    );
+  }
+
+  proxies.push(proxyConfig);
+  writeProxies(proxies);
+  return { success: true, message: `Proxy '${proxyConfig.name}' added.` };
+});
+
+ipcMain.handle("update-proxy", async (event, oldName, newConfig) => {
+  let proxies = readProxies();
+  const index = proxies.findIndex((p) => p.name === oldName);
+
+  if (index === -1) {
+    return { success: false, message: `Proxy '${oldName}' not found.` };
+  }
+
+  if (
+    oldName !== newConfig.name &&
+    proxies.some((p) => p.name === newConfig.name && p.name !== oldName)
+  ) {
+    return {
+      success: false,
+      message: `Proxy name '${newConfig.name}' already exists.`,
+    };
+  }
+
+  const oldProxy = proxies[index];
+  const serverChanged = oldProxy.server !== newConfig.server;
+  const ipMatch = newConfig.server.match(
+    /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/
+  );
+
+  if (serverChanged && ipMatch && ipMatch[1]) {
+    const geoInfo = await getGeoInfoFromIp(ipMatch[1]);
+    if (geoInfo) {
+      newConfig.timezoneId = geoInfo.timezoneId;
+      newConfig.latitude = geoInfo.latitude;
+      newConfig.longitude = geoInfo.longitude;
+      console.log(
+        `Auto-detected geo info for updated proxy ${
+          newConfig.name
+        }: ${JSON.stringify(geoInfo)}`
+      );
+    } else {
+      console.warn(
+        `Could not auto-detect geo info for updated proxy ${newConfig.name}.`
+      );
+      // Xóa các trường geo info nếu không lấy được
+      delete newConfig.timezoneId;
+      delete newConfig.latitude;
+      delete newConfig.longitude;
+    }
+  } else if (!serverChanged) {
+    // Nếu server không thay đổi, giữ lại geo info cũ
+    newConfig.timezoneId = oldProxy.timezoneId;
+    newConfig.latitude = oldProxy.latitude;
+    newConfig.longitude = oldProxy.longitude;
+    newConfig.locale = oldProxy.locale;
+  } else if (serverChanged && (!ipMatch || !ipMatch[1])) {
+    // Nếu server thay đổi nhưng không có IP, xóa geo info cũ
+    delete newConfig.timezoneId;
+    delete newConfig.latitude;
+    delete newConfig.longitude;
+    delete newConfig.locale;
+  }
+
+  proxies[index] = { ...newConfig };
+  writeProxies(proxies);
+  return { success: true, message: `Proxy '${newConfig.name}' updated.` };
+});
+
+// Xóa proxy
+ipcMain.handle("delete-proxy", async (event, proxyName) => {
+  let proxies = readProxies();
+  const initialLength = proxies.length;
+  proxies = proxies.filter((p) => p.name !== proxyName);
+
+  if (proxies.length < initialLength) {
+    writeProxies(proxies);
+    return { success: true, message: `Proxy '${proxyName}' deleted.` };
+  } else {
+    return { success: false, message: `Proxy '${proxyName}' not found.` };
+  }
+});

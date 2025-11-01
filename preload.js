@@ -12,4 +12,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("update-profile-config", profileName, config),
   openBrowser: (profileName, url) =>
     ipcRenderer.invoke("open-browser", profileName, url),
+
+  // Các API mới cho Proxy
+  getProxies: () => ipcRenderer.invoke("get-proxies"),
+  addProxy: (proxyConfig) => ipcRenderer.invoke("add-proxy", proxyConfig),
+  updateProxy: (oldName, newConfig) =>
+    ipcRenderer.invoke("update-proxy", oldName, newConfig),
+  deleteProxy: (proxyName) => ipcRenderer.invoke("delete-proxy", proxyName),
 });

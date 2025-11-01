@@ -4,11 +4,19 @@ document.addEventListener("DOMContentLoaded", () => {
   const createProfileMessage = document.getElementById("createProfileMessage");
   const profileList = document.getElementById("profileList");
 
+  const proxyNameInput = document.getElementById("proxyName");
+  const proxyServerInput = document.getElementById("proxyServer");
+  const proxyUsernameInput = document.getElementById("proxyUsername");
+  const proxyPasswordInput = document.getElementById("proxyPassword");
+  const addUpdateProxyBtn = document.getElementById("addUpdateProxyBtn");
+  const proxyMessage = document.getElementById("proxyMessage");
+  const proxyList = document.getElementById("proxyList");
+
   const profileConfigModal = document.getElementById("profileConfigModal");
   const closeButton = document.querySelector(".close-button");
   const currentProfileNameSpan = document.getElementById("currentProfileName");
 
-  // Các trường nhập liệu cấu hình
+  // Các trường nhập liệu cấu hình Profile
   const configUserAgent = document.getElementById("configUserAgent");
   const configLocale = document.getElementById("configLocale");
   const configTimezoneId = document.getElementById("configTimezoneId");
@@ -19,9 +27,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const configGeolocationAccuracy = document.getElementById(
     "configGeolocationAccuracy"
   );
-  const configProxyServer = document.getElementById("configProxyServer");
-  const configProxyUsername = document.getElementById("configProxyUsername");
-  const configProxyPassword = document.getElementById("configProxyPassword");
+  const configProxyNameDropdown = document.getElementById("configProxyName"); // Dropdown chọn proxy
   const configChromiumArgs = document.getElementById("configChromiumArgs");
   const configInitScripts = document.getElementById("configInitScripts");
 
@@ -29,9 +35,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const configMessage = document.getElementById("configMessage");
 
   let editingProfileName = "";
+  let editingProxyName = ""; // Dùng để theo dõi proxy đang được chỉnh sửa
 
   // ====================================================================
-  // Chức năng UI
+  // Chức năng UI cho Profile
   // ====================================================================
 
   async function updateProfileList() {
@@ -87,6 +94,10 @@ document.addEventListener("DOMContentLoaded", () => {
     } else if (target.classList.contains("edit-config-btn")) {
       editingProfileName = profileName;
       currentProfileNameSpan.textContent = profileName;
+
+      // Cập nhật dropdown proxy trước khi đổ dữ liệu config profile
+      await updateProxyDropdown();
+
       const result = await window.electronAPI.getProfileConfig(profileName);
       if (result.success) {
         // Đổ dữ liệu từ config vào các trường input
@@ -112,13 +123,8 @@ document.addEventListener("DOMContentLoaded", () => {
           ? config.geolocation.accuracy
           : "";
 
-        configProxyServer.value = config.proxy ? config.proxy.server || "" : "";
-        configProxyUsername.value = config.proxy
-          ? config.proxy.username || ""
-          : "";
-        configProxyPassword.value = config.proxy
-          ? config.proxy.password || ""
-          : "";
+        // Chọn proxy trong dropdown
+        configProxyNameDropdown.value = config.proxyName || "";
 
         configChromiumArgs.value =
           config.chromiumArgs && Array.isArray(config.chromiumArgs)
@@ -176,16 +182,7 @@ document.addEventListener("DOMContentLoaded", () => {
           ? parseInt(configGeolocationAccuracy.value)
           : undefined,
       },
-      proxy:
-        configProxyServer.value.trim() ||
-        configProxyUsername.value.trim() ||
-        configProxyPassword.value.trim()
-          ? {
-              server: configProxyServer.value.trim() || undefined,
-              username: configProxyUsername.value.trim() || undefined,
-              password: configProxyPassword.value.trim() || undefined,
-            }
-          : undefined,
+      proxyName: configProxyNameDropdown.value || undefined, // Lưu tên proxy đã chọn
       chromiumArgs: configChromiumArgs.value.trim()
         ? configChromiumArgs.value
             .split("\n")
@@ -209,7 +206,6 @@ document.addEventListener("DOMContentLoaded", () => {
         typeof updatedConfig[key] === "object" &&
         !Array.isArray(updatedConfig[key])
       ) {
-        // Xử lý các đối tượng con như viewport, geolocation, proxy
         let allUndefined = true;
         for (const subKey in updatedConfig[key]) {
           if (
@@ -254,5 +250,146 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // ====================================================================
+  // Chức năng UI cho Proxy Management
+  // ====================================================================
+
+  async function updateProxyList() {
+    const proxies = await window.electronAPI.getProxies();
+    proxyList.innerHTML = "";
+
+    if (proxies.length === 0) {
+      proxyList.innerHTML = "<li>Chưa có proxy nào.</li>";
+      return;
+    }
+
+    proxies.forEach((proxy) => {
+      const li = document.createElement("li");
+      li.innerHTML = `
+            <span>
+                ${proxy.name} - ${proxy.server} 
+                (TZ: ${proxy.timezoneId || "N/A"}, 
+                Lat: ${
+                  proxy.latitude !== undefined
+                    ? proxy.latitude.toFixed(2)
+                    : "N/A"
+                }, 
+                Lon: ${
+                  proxy.longitude !== undefined
+                    ? proxy.longitude.toFixed(2)
+                    : "N/A"
+                })
+            </span>
+            <button data-proxy-name="${
+              proxy.name
+            }" class="edit-proxy-btn">Sửa</button>
+            <button data-proxy-name="${
+              proxy.name
+            }" class="delete-proxy-btn">Xóa</button>
+        `;
+      proxyList.appendChild(li);
+    });
+  }
+
+  // Cập nhật dropdown chọn proxy trong modal cấu hình profile
+  async function updateProxyDropdown() {
+    const proxies = await window.electronAPI.getProxies();
+    configProxyNameDropdown.innerHTML =
+      '<option value="">Không dùng Proxy</option>'; // Mặc định
+
+    proxies.forEach((proxy) => {
+      const option = document.createElement("option");
+      option.value = proxy.name;
+      option.textContent = `${proxy.name} - ${proxy.server} (${
+        proxy.timezoneId || "N/A"
+      })`;
+      configProxyNameDropdown.appendChild(option);
+    });
+  }
+
+  addUpdateProxyBtn.addEventListener("click", async () => {
+    const name = proxyNameInput.value.trim();
+    const server = proxyServerInput.value.trim();
+    const username = proxyUsernameInput.value.trim();
+    const password = proxyPasswordInput.value.trim();
+
+    if (!name || !server) {
+      proxyMessage.textContent = "Tên và Server proxy không được để trống.";
+      proxyMessage.style.color = "red";
+      return;
+    }
+
+    const proxyConfig = { name, server, username, password };
+    let result;
+
+    if (editingProxyName && editingProxyName === name) {
+      // Đang chỉnh sửa proxy hiện có
+      result = await window.electronAPI.updateProxy(
+        editingProxyName,
+        proxyConfig
+      );
+    } else {
+      // Thêm proxy mới
+      result = await window.electronAPI.addProxy(proxyConfig);
+    }
+
+    if (result.success) {
+      proxyMessage.textContent = result.message;
+      proxyMessage.style.color = "green";
+      proxyNameInput.value = "";
+      proxyServerInput.value = "";
+      proxyUsernameInput.value = "";
+      proxyPasswordInput.value = "";
+      editingProxyName = "";
+      addUpdateProxyBtn.textContent = "Thêm Proxy"; // Đặt lại nút
+      updateProxyList();
+      updateProxyDropdown(); // Cập nhật dropdown trong modal profile
+    } else {
+      proxyMessage.textContent = result.message;
+      proxyMessage.style.color = "red";
+    }
+  });
+
+  proxyList.addEventListener("click", async (event) => {
+    const target = event.target;
+    const proxyName = target.dataset.proxyName;
+
+    if (target.classList.contains("edit-proxy-btn")) {
+      const proxies = await window.electronAPI.getProxies();
+      const proxyToEdit = proxies.find((p) => p.name === proxyName);
+      if (proxyToEdit) {
+        proxyNameInput.value = proxyToEdit.name;
+        proxyServerInput.value = proxyToEdit.server;
+        proxyUsernameInput.value = proxyToEdit.username || "";
+        proxyPasswordInput.value = proxyToEdit.password || "";
+        editingProxyName = proxyToEdit.name; // Lưu tên proxy đang chỉnh sửa
+        addUpdateProxyBtn.textContent = "Cập nhật Proxy";
+        proxyMessage.textContent = "";
+      }
+    } else if (target.classList.contains("delete-proxy-btn")) {
+      if (confirm(`Bạn có chắc chắn muốn xóa proxy '${proxyName}'?`)) {
+        const result = await window.electronAPI.deleteProxy(proxyName);
+        if (result.success) {
+          alert(result.message);
+          updateProxyList();
+          updateProxyDropdown(); // Cập nhật dropdown trong modal profile
+          // Reset form nếu proxy đang xóa là proxy đang edit
+          if (editingProxyName === proxyName) {
+            proxyNameInput.value = "";
+            proxyServerInput.value = "";
+            proxyUsernameInput.value = "";
+            proxyPasswordInput.value = "";
+            editingProxyName = "";
+            addUpdateProxyBtn.textContent = "Thêm Proxy";
+          }
+        } else {
+          alert(`Lỗi khi xóa proxy: ${result.message}`);
+        }
+      }
+    }
+  });
+
+  // Khởi tạo danh sách khi tải trang
   updateProfileList();
+  updateProxyList();
 });

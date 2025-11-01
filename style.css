@@ -12,7 +12,9 @@ h3 {
 }
 
 .profile-management,
-.profile-list-container {
+.profile-list-container,
+.proxy-management {
+  /* Thêm .proxy-management vào đây */
   background-color: #fff;
   padding: 20px;
   margin-bottom: 20px;
@@ -23,7 +25,8 @@ h3 {
 input[type="text"],
 input[type="number"],
 input[type="password"],
-textarea {
+textarea,
+select /* Thêm select vào đây */ {
   padding: 10px;
   border: 1px solid #ccc;
   border-radius: 4px;
@@ -51,12 +54,14 @@ button:hover {
   background-color: #0056b3;
 }
 
-#profileList {
+#profileList,
+#proxyList /* Thêm #proxyList vào đây */ {
   list-style: none;
   padding: 0;
 }
 
-#profileList li {
+#profileList li,
+#proxyList li /* Thêm #proxyList li vào đây */ {
   background-color: #e9ecef;
   margin-bottom: 8px;
   padding: 10px 15px;
@@ -64,31 +69,41 @@ button:hover {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap; /* Cho phép các nút xuống dòng trên màn hình nhỏ */
 }
 
-#profileList li span {
+#profileList li span,
+#proxyList li span /* Thêm #proxyList li span vào đây */ {
   font-weight: bold;
   flex-grow: 1;
+  margin-right: 10px; /* Khoảng cách giữa text và nút */
 }
 
-#profileList li button {
+#profileList li button,
+#proxyList li button /* Thêm #proxyList li button vào đây */ {
   margin-left: 10px;
+  margin-top: 5px; /* Giúp các nút không bị dính vào nhau khi xuống dòng */
+  margin-bottom: 5px;
 }
 
-.delete-profile-btn {
+.delete-profile-btn,
+.delete-proxy-btn /* Thêm .delete-proxy-btn */ {
   background-color: #dc3545;
 }
 
-.delete-profile-btn:hover {
+.delete-profile-btn:hover,
+.delete-proxy-btn:hover /* Thêm .delete-proxy-btn:hover */ {
   background-color: #c82333;
 }
 
-.edit-config-btn {
+.edit-config-btn,
+.edit-proxy-btn /* Thêm .edit-proxy-btn */ {
   background-color: #ffc107;
   color: #333;
 }
 
-.edit-config-btn:hover {
+.edit-config-btn:hover,
+.edit-proxy-btn:hover /* Thêm .edit-proxy-btn:hover */ {
   background-color: #e0a800;
 }
 
@@ -149,7 +164,48 @@ button:hover {
   width: calc(100% - 10px); /* Adjust width for consistency */
 }
 
-#configMessage {
+#configMessage,
+#proxyMessage /* Thêm #proxyMessage */ {
   margin-top: 10px;
   font-weight: bold;
+}
+
+.proxy-form input {
+  width: calc(
+    50% - 16px
+  ); /* Chia đôi chiều rộng cho các input trong form proxy */
+  display: inline-block;
+  margin-right: 10px;
+}
+
+.proxy-form button {
+  margin-left: 0;
+  width: 100%;
+  margin-top: 10px;
+}
+
+.proxy-form input:nth-child(even) {
+  margin-right: 0;
+}
+
+.note {
+  font-size: 0.9em;
+  color: #666;
+  margin-top: -5px;
+  margin-bottom: 10px;
+  font-style: italic;
+}
+
+/* Điều chỉnh để các nút proxy list không quá lớn */
+#proxyList li button {
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+@media (max-width: 768px) {
+  .proxy-form input {
+    width: calc(100% - 22px);
+    margin-right: 0;
+    display: block;
+  }
 }

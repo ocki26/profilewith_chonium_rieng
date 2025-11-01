@@ -1,0 +1,62 @@
+{
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15",
+  "locale": "en-US",
+  "timezoneId": "America/New_York",
+  "viewport": {
+    "width": 1366,
+    "height": 768
+  },
+  "geolocation": {
+    "latitude": 34.052235,
+    "longitude": -118.243683,
+    "accuracy": 20
+  },
+  "proxyName": "qw",
+  "chromiumArgs": [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--use-fake-location",
+    "--hide-scrollbars",
+    "--mute-audio"
+  ],
+  "initScripts": [
+    "Object.defineProperty(navigator, 'webdriver', { get: () => false });",
+    "(function() {",
+    "const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;",
+    "Object.defineProperty(HTMLCanvasElement.prototype, 'toDataURL', {",
+    "value: function() {",
+    "const context = this.getContext('2d');",
+    "if (context) {",
+    "const imageData = context.getImageData(0, 0, 1, 1);",
+    "const data = imageData.data;",
+    "data[0] = (data[0] + Math.floor(Math.random() * 5)) % 256;",
+    "data[1] = (data[1] + Math.floor(Math.random() * 5)) % 256;",
+    "data[2] = (data[2] + Math.floor(Math.random() * 5)) % 256;",
+    "context.putImageData(imageData, 0, 0);",
+    "}",
+    "return originalToDataURL.apply(this, arguments);",
+    "},",
+    "writable: true,",
+    "configurable: true",
+    "});",
+    "})();",
+    "(function() {",
+    "if (window.AudioContext) {",
+    "const originalGetChannelData = AudioBuffer.prototype.getChannelData;",
+    "Object.defineProperty(AudioBuffer.prototype, 'getChannelData', {",
+    "value: function() {",
+    "const result = originalGetChannelData.apply(this, arguments);",
+    "if (result.length > 0) {",
+    "result[0] = result[0] + Math.random() * 0.000000001;",
+    "}",
+    "return result;",
+    "},",
+    "writable: true,",
+    "configurable: true",
+    "});",
+    "}",
+    "})();"
+  ],
+  "acceptDownloads": true
+}
