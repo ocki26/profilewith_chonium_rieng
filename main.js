@@ -372,7 +372,7 @@ ipcMain.handle("create-profile", async (event, profileName) => {
         `Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });`,
         `Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });`,
 
-        // WebRTC blocking
+        // WebRTC blocking (GHI CHÚ: Extension sẽ xử lý việc này tốt hơn, nhưng giữ lại script này cũng không sao)
         `
         (function() {
           if (window.RTCPeerConnection) delete window.RTCPeerConnection;
@@ -594,9 +594,44 @@ ipcMain.handle(
         }
       }
 
+      // =======================================================================
+      // BẮT ĐẦU THAY ĐỔI: Tích hợp Extension
+      // =======================================================================
+
+      // 1. Xác định đường dẫn đến thư mục extension đã giải nén
+      // __dirname là thư mục chứa file main.js
+      const pathToExtension = path.join(
+        __dirname,
+        "extensions",
+        "webrtc_control_folder"
+      );
+
+      // 2. Kiểm tra xem thư mục extension có tồn tại không để tránh lỗi
+      if (!fs.existsSync(pathToExtension)) {
+        console.error(
+          `Lỗi: Không tìm thấy thư mục extension tại: ${pathToExtension}`
+        );
+        return {
+          success: false,
+          message: `Không tìm thấy thư mục extension. Vui lòng kiểm tra lại đường dẫn: ${pathToExtension}`,
+        };
+      }
+
+      // 3. Thêm các đối số mới để tải extension
+      const existingArgs = profileConfig.chromiumArgs || [];
+      const newArgs = [
+        ...existingArgs,
+        `--disable-extensions-except=${pathToExtension}`,
+        `--load-extension=${pathToExtension}`,
+      ];
+
+      // =======================================================================
+      // KẾT THÚC THAY ĐỔI
+      // =======================================================================
+
       const launchOptions = {
         headless: false,
-        args: profileConfig.chromiumArgs || [],
+        args: newArgs, // <-- SỬ DỤNG ARGS MỚI Ở ĐÂY
         userAgent: profileConfig.userAgent || undefined,
         acceptDownloads: profileConfig.acceptDownloads,
         ignoreHTTPSErrors: true,
@@ -609,9 +644,6 @@ ipcMain.handle(
         viewport: profileConfig.viewport || { width: 1366, height: 768 },
       };
 
-      // =======================================================================
-      // BẮT ĐẦU THAY ĐỔI: Thêm log chi tiết để gỡ lỗi
-      // =======================================================================
       console.log("==============================================");
       console.log(`Attempting to launch browser for profile: '${profileName}'`);
       console.log(
@@ -619,9 +651,6 @@ ipcMain.handle(
         JSON.stringify(launchOptions, null, 2)
       );
       console.log("==============================================");
-      // =======================================================================
-      // KẾT THÚC THAY ĐỔI
-      // =======================================================================
 
       browserContext = await chromium.launchPersistentContext(
         userDataDir,
@@ -682,9 +711,6 @@ ipcMain.handle(
     } catch (error) {
       console.error("Error opening browser:", error);
 
-      // =======================================================================
-      // BẮT ĐẦU THAY ĐỔI: Cải thiện thông báo lỗi
-      // =======================================================================
       if (
         error.message &&
         error.message.includes("net::ERR_TUNNEL_CONNECTION_FAILED")
@@ -702,9 +728,6 @@ ipcMain.handle(
           message: detailedMessage,
         };
       }
-      // =======================================================================
-      // KẾT THÚC THAY ĐỔI
-      // =======================================================================
 
       if (browserContext) {
         await browserContext

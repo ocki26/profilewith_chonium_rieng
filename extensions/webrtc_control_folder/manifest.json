@@ -1,0 +1,25 @@
+{
+"update_url": "https://clients2.google.com/service/update2/crx",
+
+  "manifest_version": 3,
+  "name": "WebRTC Leak Prevent",
+  "version": "2.0.0",
+  "description": "Prevent WebRTC leaks using the official API.",
+  "icons": {
+    "128": "/img/icon128.png"
+  },
+  "action": {
+    "default_title": "Open options.",
+    "default_popup": "/html/options.html"
+  },
+  "options_ui": {
+    "page": "/html/options.html",
+    "open_in_tab": false
+  },
+  "background": {
+    "service_worker": "js/background.js"
+  },
+  "permissions": ["storage", "privacy"],
+  "host_permissions": [],
+  "minimum_chrome_version": "88"
+}
