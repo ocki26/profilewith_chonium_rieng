@@ -1,6 +1,11 @@
+// preload.js
+
 const { contextBridge, ipcRenderer } = require("electron");
 
+// Phơi bày một API an toàn cho quy trình renderer
+// 'electronAPI' là tên mà chúng ta sẽ gọi từ window trong renderer.js
 contextBridge.exposeInMainWorld("electronAPI", {
+  // Các hàm liên quan đến Profile
   getProfiles: () => ipcRenderer.invoke("get-profiles"),
   createProfile: (profileName) =>
     ipcRenderer.invoke("create-profile", profileName),
@@ -13,7 +18,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   openBrowser: (profileName, url) =>
     ipcRenderer.invoke("open-browser", profileName, url),
 
-  // Các API mới cho Proxy
+  // Các hàm liên quan đến Proxy
   getProxies: () => ipcRenderer.invoke("get-proxies"),
   addProxy: (proxyConfig) => ipcRenderer.invoke("add-proxy", proxyConfig),
   updateProxy: (oldName, newConfig) =>

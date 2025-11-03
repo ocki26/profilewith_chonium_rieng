@@ -15,8 +15,8 @@
     "hpagent": "^1.2.0",
     "node-fetch": "^2.6.7",
     "playwright-extra": "^4.3.6",
-    "playwright-extra-plugin-stealth": "^0.0.1",
     "proxy-agent": "^6.5.0",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "user-agents": "^1.1.669"
   }
 }
