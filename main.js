@@ -6,8 +6,6 @@ const UserAgent = require("user-agents");
 const fetch = require("node-fetch");
 const { HttpsProxyAgent } = require("hpagent");
 
-// ĐÃ XÓA stealth plugin
-
 // Biến để giữ instance của electron-store
 let proxyStore;
 
@@ -34,6 +32,7 @@ function normalizeProxyServerUrl(serverString) {
     return serverString;
   }
 
+  // Mặc định là http nếu không có protocol
   return `http://${serverString}`;
 }
 
@@ -87,7 +86,6 @@ app.whenReady().then(async () => {
   ensureDirectory(PROFILES_DIR);
   createWindow();
 
-  // Import electron-store động khi app đã sẵn sàng
   try {
     const StoreModule = await import("electron-store");
     proxyStore = new StoreModule.default({ name: "proxies" });
@@ -115,7 +113,6 @@ app.on("window-all-closed", () => {
 // Xử lý IPC (Inter-Process Communication) từ Renderer Process
 // ====================================================================
 
-// Lấy danh sách profiles hiện có
 ipcMain.handle("get-profiles", async () => {
   ensureDirectory(PROFILES_DIR);
   try {
@@ -130,7 +127,6 @@ ipcMain.handle("get-profiles", async () => {
   }
 });
 
-// Tạo một profile mới
 ipcMain.handle("create-profile", async (event, profileName) => {
   if (!profileName || typeof profileName !== "string") {
     return { success: false, message: "Invalid profile name." };
@@ -150,7 +146,9 @@ ipcMain.handle("create-profile", async (event, profileName) => {
     fs.mkdirSync(profilePath);
     fs.mkdirSync(userDataDir);
 
-    const userAgent = new UserAgent({ deviceCategory: "desktop" }).toString();
+    // User-Agent nhất quán cho Windows 10 / Chrome
+    const userAgent =
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36";
 
     const defaultConfig = {
       userAgent: userAgent,
@@ -170,10 +168,6 @@ ipcMain.handle("create-profile", async (event, profileName) => {
         "--disable-dev-shm-usage",
         "--hide-scrollbars",
         "--mute-audio",
-        "--disable-gpu",
-        "--disable-software-rasterizer",
-        "--disable-accelerated-2d-canvas",
-        "--disable-accelerated-video-decode",
         "--disable-web-security",
         "--disable-background-timer-throttling",
         "--disable-renderer-backgrounding",
@@ -184,23 +178,201 @@ ipcMain.handle("create-profile", async (event, profileName) => {
         "--disable-ipc-flooding-protection",
         "--disable-hang-monitor",
         "--no-pings",
-        "--disable-reading-from-canvas",
         "--disable-translate",
         "--disable-background-networking",
         "--disable-sync",
         "--metrics-recording-only",
-        "--disable-default-apps",
         "--no-first-run",
-        "--disable-background-timer-throttling",
-        "--disable-renderer-backgrounding",
-        "--disable-backgrounding-occluded-windows",
       ],
       initScripts: [
-        `Object.defineProperty(navigator, 'webdriver', { get: () => false });`,
-        `Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });`,
-        `Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });`,
-        `Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 4 });`,
+        // Script chống phát hiện WebDriver nâng cao
+        `
+        (function () {
+          if (navigator.webdriver) {
+            Object.defineProperty(navigator, 'webdriver', {
+              get: () => false,
+              configurable: true
+            });
+          }
+
+          // Xóa các biến tự động hóa của ChromeDriver
+          for (var window_property in window) {
+            if (window_property.match(/^\\$cdc_[a-zA-Z0-9_\\$]*$/) || window_property.match(/^[a-zA-Z0-9_\\$]*_cdc$/)) {
+              delete window[window_property];
+            }
+          }
+
+          for (var doc_property in document) {
+            if (doc_property.match(/^\\$cdc_[a-zA-Z0-9_\\$]*$/) || doc_property.match(/^[a-zA-Z0-9_\\$]*_cdc$/)) {
+              delete document[doc_property];
+            }
+          }
+        })();
+        `,
+
+        // Giả lập Plugins và MimeTypes hoàn thiện hơn
+        `
+        (function() {
+          try {
+            const MimeType = function(type, suffixes, description, enabledPlugin) {
+              this.type = type || '';
+              this.suffixes = suffixes || '';
+              this.description = description || '';
+              this.enabledPlugin = enabledPlugin || null;
+            };
+
+            const Plugin = function(name, filename, description, mimeTypes) {
+              this.name = name || '';
+              this.filename = filename || '';
+              this.description = description || '';
+              this.length = mimeTypes ? mimeTypes.length : 0;
+              if (mimeTypes) {
+                for (let i = 0; i < mimeTypes.length; i++) {
+                  this[i] = mimeTypes[i];
+                  Object.defineProperty(this, mimeTypes[i].type, {
+                    value: mimeTypes[i],
+                    enumerable: true
+                  });
+                }
+              }
+            };
+            
+            Plugin.prototype.item = function(index) { return this[index] || null; };
+            Plugin.prototype.namedItem = function(name) {
+              for(let i=0; i<this.length; i++) {
+                if(this[i].type === name) return this[i];
+              }
+              return null;
+            };
+
+            const MimeTypeArray = function(items) {
+              items = items || [];
+              for(let i=0; i<items.length; i++) this[i] = items[i];
+              this.length = items.length;
+            };
+
+            MimeTypeArray.prototype.item = function(index) { return this[index] || null; };
+            MimeTypeArray.prototype.namedItem = function(name) {
+              for(let i=0; i<this.length; i++) {
+                if(this[i].type === name) return this[i];
+              }
+              return null;
+            };
+
+            const PluginArray = function(items) {
+              items = items || [];
+              for (let i=0; i<items.length; i++) this[i] = items[i];
+              this.length = items.length;
+            };
+
+            PluginArray.prototype.item = function(index) { return this[index] || null; };
+            PluginArray.prototype.namedItem = function(name) {
+              for(let i=0; i<this.length; i++) {
+                if(this[i].name === name) return this[i];
+              }
+              return null;
+            };
+            PluginArray.prototype.refresh = function(){};
+
+            const pdfMime = new MimeType('application/pdf', 'pdf', 'Portable Document Format');
+            const pdfPlugin = new Plugin('PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format', [pdfMime]);
+            pdfMime.enabledPlugin = pdfPlugin;
+
+            const chromePdfMime = new MimeType('application/x-google-chrome-pdf', 'pdf', 'Portable Document Format');
+            const chromePdfPlugin = new Plugin('Chrome PDF Viewer', 'mhjfbmdgcfjbbpaeojofohoefgiehjai', 'Portable Document Format', [chromePdfMime]);
+            chromePdfMime.enabledPlugin = chromePdfPlugin;
+
+            const plugins = new PluginArray([pdfPlugin, chromePdfPlugin]);
+            const mimeTypes = new MimeTypeArray([pdfMime, chromePdfMime]);
+
+            Object.defineProperty(navigator, 'plugins', { get: () => plugins, enumerable: true, configurable: true });
+            Object.defineProperty(navigator, 'mimeTypes', { get: () => mimeTypes, enumerable: true, configurable: true });
+          } catch (e) { console.warn('Failed to shim navigator.plugins/mimeTypes', e); }
+        })();
+        `,
+
+        // Giả lập Languages nhất quán hơn
+        `
+        (function() {
+          Object.defineProperty(navigator, 'language', { get: () => 'en-US', configurable: true });
+          Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'], configurable: true });
+        })();
+        `,
+
+        // Cải thiện giả lập WebGL để trông tự nhiên hơn
+        `
+        (function() {
+          if (typeof WebGLRenderingContext !== 'undefined') {
+            const originalGetParameter = WebGLRenderingContext.prototype.getParameter;
+            WebGLRenderingContext.prototype.getParameter = function(parameter) {
+              if (parameter === 37445) return 'Google Inc. (Intel)';
+              if (parameter === 37446) return 'ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11)';
+              return originalGetParameter.call(this, parameter);
+            };
+
+            const originalGetSupportedExtensions = WebGLRenderingContext.prototype.getSupportedExtensions;
+            WebGLRenderingContext.prototype.getSupportedExtensions = function() {
+              const commonExtensions = [
+                "ANGLE_instanced_arrays", "EXT_blend_minmax", "EXT_color_buffer_half_float",
+                "EXT_disjoint_timer_query", "EXT_float_blend", "EXT_frag_depth",
+                "EXT_shader_texture_lod", "EXT_texture_filter_anisotropic", "WEBKIT_EXT_texture_filter_anisotropic",
+                "OES_element_index_uint", "OES_standard_derivatives", "OES_texture_float",
+                "OES_texture_float_linear", "OES_texture_half_float", "OES_texture_half_float_linear",
+                "OES_vertex_array_object", "WEBGL_color_buffer_float", "WEBGL_compressed_texture_s3tc",
+                "WEBKIT_WEBGL_compressed_texture_s3tc", "WEBGL_compressed_texture_s3tc_srgb",
+                "WEBGL_debug_renderer_info", "WEBGL_debug_shaders", "WEBGL_depth_texture",
+                "WEBKIT_WEBGL_depth_texture", "WEBGL_draw_buffers", "WEBGL_lose_context", "WEBKIT_WEBGL_lose_context"
+              ];
+              return commonExtensions;
+            };
+          }
+        })();
+        `,
+
+        // Giả lập Platform nhất quán với User Agent (Windows)
+        `
+        (function() {
+          Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
+          Object.defineProperty(navigator, 'oscpu', { get: () => 'Windows NT 10.0; Win64; x64', configurable: true });
+          const appVersion = "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36";
+          Object.defineProperty(navigator, 'appVersion', { get: () => appVersion, configurable: true });
+          Object.defineProperty(navigator, 'vendor', { get: () => 'Google Inc.', configurable: true });
+        })();
+        `,
+
+        // Script chống fingerprint qua Broken Image Dimensions
+        `
+        (function() {
+          try {
+            const H = HTMLImageElement.prototype;
+            const ow = Object.getOwnPropertyDescriptor(H, 'width');
+            const oh = Object.getOwnPropertyDescriptor(H, 'height');
+
+            if (ow && ow.get && oh && oh.get) {
+              Object.defineProperties(H, {
+                'width': {
+                  get: function() {
+                    if (this.complete && this.naturalWidth === 0) return 0;
+                    return ow.get.call(this);
+                  }
+                },
+                'height': {
+                  get: function() {
+                    if (this.complete && this.naturalHeight === 0) return 0;
+                    return oh.get.call(this);
+                  }
+                }
+              });
+            }
+          } catch(e) { console.warn('Failed to patch Broken Image Dimensions', e); }
+        })();
+        `,
+
+        // Các script cơ bản khác
+        `Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });`,
         `Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });`,
+
+        // WebRTC blocking
         `
         (function() {
           if (window.RTCPeerConnection) delete window.RTCPeerConnection;
@@ -210,49 +382,39 @@ ipcMain.handle("create-profile", async (event, profileName) => {
           if (window.RTCIceCandidate) delete window.RTCIceCandidate;
           
           if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-            const originalGetUserMedia = navigator.mediaDevices.getUserMedia;
             navigator.mediaDevices.getUserMedia = function() {
-              console.log('WebRTC getUserMedia blocked by custom script.');
               return Promise.reject(new Error('WebRTC is disabled by custom script'));
             };
           }
-          if (window.MediaStream) {
-            window.MediaStream = function() {
-              throw new Error('WebRTC MediaStream is disabled by custom script');
-            };
-          }
         })();
         `,
+
+        // Canvas fingerprint protection
         `
         (function() {
-          const originalDate = Date;
-          window.Date = function(...args) {
-            const date = new originalDate(...args);
-            return date;
+          const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+          HTMLCanvasElement.prototype.toDataURL = function(type, quality) {
+            const context = this.getContext('2d');
+            if (context) {
+              try {
+                const imageData = context.getImageData(0, 0, this.width, this.height);
+                const data = imageData.data;
+                for (let i = 0; i < data.length; i += 4) {
+                  if (Math.random() > 0.98) {
+                    data[i] = data[i] ^ 1;
+                    data[i+1] = data[i+1] ^ 1;
+                    data[i+2] = data[i+2] ^ 1;
+                  }
+                }
+                context.putImageData(imageData, 0, 0);
+              } catch (e) {}
+            }
+            return originalToDataURL.call(this, type, quality);
           };
-          Date.prototype = originalDate.prototype;
-          Date.now = originalDate.now;
-          Date.parse = originalDate.parse;
-          Date.UTC = originalDate.UTC;
         })();
         `,
-        `
-        (function() {
-          if (typeof WebGLRenderingContext !== 'undefined') {
-            const originalGetParameter = WebGLRenderingContext.prototype.getParameter;
-            
-            WebGLRenderingContext.prototype.getParameter = function(parameter) {
-              if (parameter === 37445) return 'Google Inc. (Intel)';
-              if (parameter === 37446) return 'ANGLE (Intel, Intel(R) UHD Graphics Direct3D11 vs_5_0 ps_5_0)';
-              
-              return originalGetParameter.call(this, parameter);
-            };
-            
-            WebGLRenderingContext.prototype.getExtension = function() { return null; };
-            WebGLRenderingContext.prototype.getSupportedExtensions = function() { return []; };
-          }
-        })();
-        `,
+
+        // Screen properties
         `
         (function() {
           const fakeScreen = {
@@ -261,148 +423,24 @@ ipcMain.handle("create-profile", async (event, profileName) => {
             availWidth: 1366,
             availHeight: 768,
             colorDepth: 24,
-            pixelDepth: 24,
-            availLeft: 0,
-            availTop: 0
+            pixelDepth: 24
           };
-          
           Object.defineProperty(window, 'screen', {
             get: () => fakeScreen
           });
-          
-          Object.defineProperty(window, 'innerWidth', { get: () => 1366 });
-          Object.defineProperty(window, 'innerHeight', { get: () => 768 });
-          Object.defineProperty(window, 'outerWidth', { get: () => 1382 });
-          Object.defineProperty(window, 'outerHeight', { get: () => 816 });
-          Object.defineProperty(window, 'devicePixelRatio', { get: () => 1 });
-          
-          const originalMatchMedia = window.matchMedia;
-          window.matchMedia = function(query) {
-            if (query.includes('width') || query.includes('height')) {
-                return { matches: false, media: query, addListener: function() {}, removeListener: function() {} };
-            }
-            return originalMatchMedia.call(this, query);
-          };
         })();
         `,
-        `
-        (function() {
-          const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
-          const originalGetImageData = CanvasRenderingContext2D.prototype.getImageData;
-          const originalPutImageData = CanvasRenderingContext2D.prototype.putImageData;
-          
-          HTMLCanvasElement.prototype.toDataURL = function(type, quality) {
-            const context = this.getContext('2d');
-            if (context) {
-              try {
-                const imageData = originalGetImageData.call(context, 0, 0, this.width, this.height);
-                const data = imageData.data;
-                
-                for (let i = 0; i < data.length; i += 4) {
-                  if (Math.random() > 0.98) {
-                    data[i] = data[i] ^ 1;
-                    data[i+1] = data[i+1] ^ 1;
-                    data[i+2] = data[i+2] ^ 1;
-                  }
-                }
-                
-                originalPutImageData.call(context, imageData, 0, 0);
-              } catch (e) {
-                console.warn('Canvas fingerprinting protection error:', e);
-              }
-            }
-            return originalToDataURL.call(this, type, quality);
-          };
-          
-          CanvasRenderingContext2D.prototype.getImageData = function(sx, sy, sw, sh) {
-            const imageData = originalGetImageData.call(this, sx, sy, sw, sh);
-            const data = imageData.data;
-            for (let i = 0; i < data.length; i += 4) {
-              if (Math.random() > 0.98) {
-                data[i] = data[i] ^ 1;
-                data[i+1] = data[i+1] ^ 1;
-                data[i+2] = data[i+2] ^ 1;
-              }
-            }
-            return imageData;
-          };
-        })();
-        `,
-        `
-        (function() {
-          if (window.AudioContext) {
-            const originalCreateBuffer = AudioContext.prototype.createBuffer;
-            AudioContext.prototype.createBuffer = function() {
-              const buffer = originalCreateBuffer.apply(this, arguments);
-              
-              const originalGetChannelData = buffer.getChannelData;
-              buffer.getChannelData = function(channel) {
-                const channelData = originalGetChannelData.call(this, channel);
-                
-                for (let i = 0; i < channelData.length; i++) {
-                  if (Math.random() > 0.995) {
-                    channelData[i] += (Math.random() - 0.5) * 0.00001;
-                  }
-                }
-                
-                return channelData;
-              };
-              
-              return buffer;
-            };
-          }
-        })();
-        `,
-        `
-        (function() {
-          const webrtcObjects = [
-            'RTCPeerConnection', 'webkitRTCPeerConnection', 'mozRTCPeerConnection',
-            'RTCSessionDescription', 'RTCIceCandidate', 'RTCPeerConnectionIceEvent',
-            'RTCDataChannel', 'RTCDataChannelEvent', 'MediaStream'
-          ];
-          
-          webrtcObjects.forEach(obj => {
-            if (window[obj]) {
-              console.log('Blocking WebRTC object:', obj);
-              delete window[obj];
-            }
-          });
-          
-          if (navigator.mediaDevices) {
-            if (navigator.mediaDevices.getDisplayMedia) {
-              navigator.mediaDevices.getDisplayMedia = function() {
-                console.log('navigator.mediaDevices.getDisplayMedia blocked.');
-                return Promise.reject(new Error('getDisplayMedia is not supported'));
-              };
-            }
-            if (navigator.mediaDevices.getUserMedia) {
-                navigator.mediaDevices.getUserMedia = function() {
-                    console.log('navigator.mediaDevices.getUserMedia blocked.');
-                    return Promise.reject(new Error('getUserMedia is not supported'));
-                };
-            }
-          }
-        })();
-        `,
-        `
-        (function() {
-          Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
-          Object.defineProperty(navigator, 'oscpu', { get: () => 'Windows NT 10.0; Win64; x64' });
-          Object.defineProperty(navigator, 'cpuClass', { get: () => 'x86' });
-        })();
-        `,
+
+        // Battery API
         `
         (function() {
           if (navigator.getBattery) {
-            const originalGetBattery = navigator.getBattery;
             navigator.getBattery = async function() {
               return Promise.resolve({
                 charging: true,
                 chargingTime: 0,
                 dischargingTime: Infinity,
-                level: 1,
-                addEventListener: () => {},
-                removeEventListener: () => {}
+                level: 1
               });
             };
           }
@@ -425,7 +463,6 @@ ipcMain.handle("create-profile", async (event, profileName) => {
   }
 });
 
-// Xóa một profile
 ipcMain.handle("delete-profile", async (event, profileName) => {
   if (!profileName || typeof profileName !== "string") {
     return { success: false, message: "Invalid profile name." };
@@ -510,9 +547,6 @@ ipcMain.handle(
       let finalLocale = profileConfig.locale;
       let finalGeolocation = profileConfig.geolocation;
 
-      // Biến để chứa instance của HttpsProxyAgent (nếu cần dùng cho các API Node.js khác)
-      let proxyAgent = undefined;
-      // Biến để chứa cấu hình proxy theo định dạng của Playwright
       let playwrightProxyConfig = undefined;
 
       if (profileConfig.proxyName) {
@@ -531,37 +565,8 @@ ipcMain.handle(
         );
 
         if (selectedProxy) {
-          let proxyUrl;
-          try {
-            // Dòng này đã được bảo vệ bởi normalizeProxyServerUrl khi thêm/cập nhật proxy
-            proxyUrl = new URL(selectedProxy.server);
-          } catch (e) {
-            console.error(
-              `Invalid proxy server URL in store for '${selectedProxy.name}': ${selectedProxy.server}`,
-              e
-            );
-            return {
-              success: false,
-              message: `Invalid proxy server URL for '${selectedProxy.name}'. Please check proxy settings.`,
-            };
-          }
-
-          let proxyServerString = `${proxyUrl.protocol}//${proxyUrl.hostname}:${proxyUrl.port}`;
-
-          // Khởi tạo HttpsProxyAgent nếu cần dùng cho các yêu cầu fetch của Node.js
-          if (selectedProxy.username && selectedProxy.password) {
-            proxyAgent = new HttpsProxyAgent({
-              proxy: proxyServerString,
-              username: selectedProxy.username,
-              password: selectedProxy.password,
-            });
-          } else {
-            proxyAgent = new HttpsProxyAgent({ proxy: proxyServerString });
-          }
-
-          // Cấu hình proxy cho Playwright (dạng đối tượng đơn giản)
           playwrightProxyConfig = {
-            server: selectedProxy.server, // Playwright cần chuỗi URL proxy đầy đủ (ví dụ: http://ip:port)
+            server: selectedProxy.server,
             username: selectedProxy.username,
             password: selectedProxy.password,
           };
@@ -596,131 +601,73 @@ ipcMain.handle(
         acceptDownloads: profileConfig.acceptDownloads,
         ignoreHTTPSErrors: true,
         bypassCSP: true,
-        // Sử dụng cấu hình proxy đã chuẩn bị cho Playwright
         proxy: playwrightProxyConfig,
         timezoneId: finalTimezoneId,
         locale: finalLocale,
+        geolocation: finalGeolocation,
+        permissions: ["geolocation"],
         viewport: profileConfig.viewport || { width: 1366, height: 768 },
       };
+
+      // =======================================================================
+      // BẮT ĐẦU THAY ĐỔI: Thêm log chi tiết để gỡ lỗi
+      // =======================================================================
+      console.log("==============================================");
+      console.log(`Attempting to launch browser for profile: '${profileName}'`);
+      console.log(
+        "Final Playwright Launch Options:",
+        JSON.stringify(launchOptions, null, 2)
+      );
+      console.log("==============================================");
+      // =======================================================================
+      // KẾT THÚC THAY ĐỔI
+      // =======================================================================
 
       browserContext = await chromium.launchPersistentContext(
         userDataDir,
         launchOptions
       );
 
-      const page = await browserContext.newPage();
+      const page = browserContext.pages().length
+        ? browserContext.pages()[0]
+        : await browserContext.newPage();
 
-      if (
-        finalGeolocation &&
-        finalGeolocation.latitude !== undefined &&
-        finalGeolocation.longitude !== undefined
-      ) {
-        await browserContext.setGeolocation(finalGeolocation);
-        // THAY THẾ evaluateOnNewDocument BẰNG addInitScript
-        await page.addInitScript((geolocation) => {
-          navigator.geolocation.getCurrentPosition = (
-            successCallback,
-            errorCallback,
-            options
-          ) => {
-            const position = {
-              coords: {
-                latitude: geolocation.latitude,
-                longitude: geolocation.longitude,
-                accuracy: geolocation.accuracy || 20,
-                altitude: null,
-                altitudeAccuracy: null,
-                heading: null,
-                speed: null,
-              },
-              timestamp: Date.now(),
-            };
-            successCallback(position);
-          };
-          navigator.geolocation.watchPosition = (
-            successCallback,
-            errorCallback,
-            options
-          ) => {
-            const position = {
-              coords: {
-                latitude: geolocation.latitude,
-                longitude: geolocation.longitude,
-                accuracy: geolocation.accuracy || 20,
-                altitude: null,
-                altitudeAccuracy: null,
-                heading: null,
-                speed: null,
-              },
-              timestamp: Date.now(),
-            };
-            successCallback(position);
-            return 1;
-          };
-          navigator.geolocation.clearWatch = (watchId) => {
-            // Do nothing
-          };
-        }, finalGeolocation);
-      } else {
-        await browserContext.clearPermissions(["geolocation"]);
+      // Inject tất cả các script
+      const allInitScripts = profileConfig.initScripts || [];
+      for (const script of allInitScripts) {
+        await page.addInitScript(script);
       }
 
-      if (
-        profileConfig.viewport &&
-        profileConfig.viewport.width &&
-        profileConfig.viewport.height
-      ) {
-        await page.setViewportSize({
-          width: profileConfig.viewport.width,
-          height: profileConfig.viewport.height,
-        });
-      }
-
-      if (finalTimezoneId) {
-        // THAY THẾ evaluateOnNewDocument BẰNG addInitScript
-        await page.addInitScript((tz) => {
-          Object.defineProperty(Intl, "DateTimeFormat", {
-            value: class DateTimeFormat extends Intl.DateTimeFormat {
-              constructor(locale, options) {
-                super(locale, { ...options, timeZone: tz });
+      // Script cuối cùng để giả lập Permissions API
+      await page.addInitScript((geoGranted) => {
+        try {
+          if (navigator.permissions && navigator.permissions.query) {
+            const originalQuery = navigator.permissions.query;
+            navigator.permissions.query = (params) => {
+              if (
+                params &&
+                (params.name === "notifications" ||
+                  params.name === "camera" ||
+                  params.name === "microphone")
+              ) {
+                return Promise.resolve({
+                  state: "prompt",
+                  onchange: null,
+                });
               }
-            },
-          });
-        }, finalTimezoneId);
-      }
-
-      if (
-        profileConfig.initScripts &&
-        Array.isArray(profileConfig.initScripts)
-      ) {
-        for (const script of profileConfig.initScripts) {
-          try {
-            // THAY THẾ evaluateOnNewDocument BẰNG addInitScript
-            await page.addInitScript(script);
-          } catch (scriptError) {
-            console.error(
-              `Error injecting script into page for profile '${profileName}': ${scriptError.message}`,
-              script
-            );
+              if (params && params.name === "geolocation") {
+                return Promise.resolve({
+                  state: geoGranted ? "granted" : "prompt",
+                  onchange: null,
+                });
+              }
+              return originalQuery.call(navigator.permissions, params);
+            };
           }
+        } catch (e) {
+          console.warn("Error in final initScript stealth shim", e);
         }
-      }
-
-      // API này có thể không tồn tại trong Playwright core, cần bọc trong try-catch
-      try {
-        await page.setRTCClientHints({
-          audio: {
-            send: "none",
-            receive: "none",
-          },
-          video: {
-            send: "none",
-            receive: "none",
-          },
-        });
-      } catch (error) {
-        console.warn("setRTCClientHints not available:", error.message);
-      }
+      }, !!finalGeolocation);
 
       await page.goto(url);
 
@@ -734,6 +681,31 @@ ipcMain.handle(
       };
     } catch (error) {
       console.error("Error opening browser:", error);
+
+      // =======================================================================
+      // BẮT ĐẦU THAY ĐỔI: Cải thiện thông báo lỗi
+      // =======================================================================
+      if (
+        error.message &&
+        error.message.includes("net::ERR_TUNNEL_CONNECTION_FAILED")
+      ) {
+        const detailedMessage = `Lỗi kết nối Proxy (ERR_TUNNEL_CONNECTION_FAILED). Vui lòng kiểm tra lại:
+1.  **Thông tin Proxy:** Địa chỉ IP, Port, Username, Password có chính xác không?
+2.  **Giao thức Proxy:** Nếu là SOCKS5, bạn đã điền 'socks5://' trước địa chỉ chưa? (Ví dụ: socks5://123.45.67.89:1080). Mặc định là HTTP.
+3.  **Proxy còn hoạt động:** Proxy có thể đã hết hạn hoặc đang ngoại tuyến.
+4.  **Tường lửa/Antivirus:** Phần mềm bảo mật có thể đang chặn kết nối đến proxy.`;
+
+        console.error("Detailed Proxy Error:", detailedMessage);
+
+        return {
+          success: false,
+          message: detailedMessage,
+        };
+      }
+      // =======================================================================
+      // KẾT THÚC THAY ĐỔI
+      // =======================================================================
+
       if (browserContext) {
         await browserContext
           .close()
@@ -750,7 +722,7 @@ ipcMain.handle(
 );
 
 // ====================================================================
-// Xử lý IPC cho Proxy Management (sử dụng electron-store)
+// Xử lý IPC cho Proxy Management
 // ====================================================================
 
 ipcMain.handle("get-proxies", async () => {
@@ -875,7 +847,6 @@ ipcMain.handle("update-proxy", async (event, oldName, newConfig) => {
     delete newConfig.longitude;
     delete newConfig.locale;
   }
-
   newConfig.timezoneId =
     newConfig.timezoneId !== undefined
       ? newConfig.timezoneId
@@ -894,7 +865,6 @@ ipcMain.handle("update-proxy", async (event, oldName, newConfig) => {
   return { success: true, message: `Proxy '${newConfig.name}' updated.` };
 });
 
-// Xóa proxy
 ipcMain.handle("delete-proxy", async (event, proxyName) => {
   if (!proxyStore) {
     console.error("proxyStore is not initialized. Cannot delete proxy.");
