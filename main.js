@@ -110,8 +110,17 @@ function generateRealisticFingerprint() {
     languageSets[Math.floor(Math.random() * languageSets.length)];
   const locale = languages[0];
 
+  // **** ĐÂY LÀ PHẦN THAY ĐỔI ****
   const initScript = `
     (function() {
+      // === BẮT ĐẦU VÔ HIỆU HÓA WEBRTC ===
+      // Ghi đè các API WebRTC cốt lõi, khiến chúng không thể sử dụng được
+      // Đây là cách hiệu quả hơn tham số --disable-features=WebRTC khi dùng stealth
+      const RtcPeerConnection = null;
+      window.RTCPeerConnection = RtcPeerConnection;
+      window.webkitRTCPeerConnection = RtcPeerConnection;
+      // === KẾT THÚC VÔ HIỆU HÓA WEBRTC ===
+
       const getParameter = WebGLRenderingContext.prototype.getParameter;
       WebGLRenderingContext.prototype.getParameter = function(parameter) {
         if (parameter === 37445) return '${webgl.vendor}';
@@ -327,7 +336,7 @@ ipcMain.handle(
       const newArgs = [
         ...new Set([
           ...existingArgs,
-          "--disable-features=WebRTC",
+
           "--disable-blink-features=AutomationControlled",
           "--mute-audio",
           "--no-first-run",
