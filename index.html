@@ -8,160 +8,96 @@
   <body>
     <h1>Quản lý Profile & Proxy Trình Duyệt</h1>
 
-    <div class="profile-management">
-      <h2>Tạo Profile Mới</h2>
-      <input type="text" id="newProfileName" placeholder="Tên Profile" />
-      <button id="createProfileBtn">Tạo Profile</button>
-      <p id="createProfileMessage"></p>
-    </div>
+    <div class="main-container">
+      <div class="column">
+        <!-- Phần quản lý Profile -->
+        <div class="management-section">
+          <h2>Tạo Profile Mới</h2>
+          <div class="form-group">
+            <input type="text" id="newProfileName" placeholder="Tên Profile" />
+            <select id="newProfileProxySelect">
+              <option value="">Không dùng Proxy</option>
+            </select>
+            <button id="createProfileBtn">Tạo</button>
+          </div>
+          <p id="createProfileMessage" class="message"></p>
+        </div>
 
-    <div class="profile-list-container">
-      <h2>Danh sách Profiles</h2>
-      <ul id="profileList">
-        <!-- Profiles sẽ được thêm vào đây bằng JavaScript -->
-      </ul>
-    </div>
+        <div class="list-container">
+          <h2>Danh sách Profiles</h2>
 
-    <!-- Phần quản lý Proxy -->
-    <div class="proxy-management">
-      <h2>Quản lý Proxy</h2>
-      <div class="proxy-form">
-        <input type="text" id="proxyName" placeholder="Tên Proxy (duy nhất)" />
-        <input
-          type="text"
-          id="proxyServer"
-          placeholder="Server (ví dụ: http://ip:port hoặc socks5://ip:port)"
-        />
-        <input
-          type="text"
-          id="proxyUsername"
-          placeholder="Username (tùy chọn)"
-        />
-        <input
-          type="password"
-          id="proxyPassword"
-          placeholder="Password (tùy chọn)"
-        />
-        <button id="addUpdateProxyBtn">Thêm Proxy</button>
-        <p id="proxyMessage"></p>
+          <!-- === THÊM Ô INPUT URL Ở ĐÂY === -->
+          <div class="url-opener">
+            <input
+              type="text"
+              id="urlToOpen"
+              placeholder="Nhập URL để mở (vd: https://google.com)"
+              value="https://whoer.net/"
+            />
+          </div>
+          <!-- ============================ -->
+
+          <ul id="profileList"></ul>
+        </div>
       </div>
-      <h3>Proxies Đã Lưu</h3>
-      <ul id="proxyList">
-        <!-- Proxies sẽ được thêm vào đây -->
-      </ul>
+
+      <div class="column">
+        <!-- Phần quản lý Proxy -->
+        <div class="management-section">
+          <h2>Quản lý Proxy</h2>
+          <div class="proxy-form">
+            <input
+              type="text"
+              id="proxyName"
+              placeholder="Tên Proxy (duy nhất)"
+            />
+            <input
+              type="text"
+              id="proxyServer"
+              placeholder="Server (vd: http://ip:port)"
+            />
+            <input
+              type="text"
+              id="proxyUsername"
+              placeholder="Username (tùy chọn)"
+            />
+            <input
+              type="password"
+              id="proxyPassword"
+              placeholder="Password (tùy chọn)"
+            />
+            <button id="addUpdateProxyBtn">Thêm Proxy</button>
+          </div>
+          <p id="proxyMessage" class="message"></p>
+        </div>
+
+        <div class="list-container">
+          <h3>Proxies Đã Lưu</h3>
+          <ul id="proxyList"></ul>
+        </div>
+      </div>
     </div>
 
+    <!-- Modal Cấu hình Profile -->
     <div id="profileConfigModal" class="modal">
       <div class="modal-content">
         <span class="close-button">&times;</span>
         <h2>Cấu hình Profile: <span id="currentProfileName"></span></h2>
 
         <div class="config-section">
-          <h3>Thông tin cơ bản</h3>
-          <label for="configUserAgent">User Agent:</label>
-          <input
-            type="text"
-            id="configUserAgent"
-            class="config-input"
-            placeholder="Mozilla/5.0 (Windows NT 10.0...)"
-          /><br />
-
-          <label for="configLocale">Locale (Ngôn ngữ):</label>
-          <input
-            type="text"
-            id="configLocale"
-            class="config-input"
-            placeholder="en-US, vi-VN, fr-FR"
-          /><br />
-
-          <label for="configTimezoneId">Múi giờ (TZID):</label>
-          <input
-            type="text"
-            id="configTimezoneId"
-            class="config-input"
-            placeholder="Asia/Ho_Chi_Minh, America/New_York"
-          /><br />
-        </div>
-
-        <div class="config-section">
-          <h3>Viewport (Kích thước cửa sổ)</h3>
-          <label for="configViewportWidth">Chiều rộng:</label>
-          <input
-            type="number"
-            id="configViewportWidth"
-            class="config-input"
-            min="100"
-          /><br />
-          <label for="configViewportHeight">Chiều cao:</label>
-          <input
-            type="number"
-            id="configViewportHeight"
-            class="config-input"
-            min="100"
-          /><br />
-        </div>
-
-        <div class="config-section">
-          <h3>Geolocation (Tọa độ)</h3>
-          <label for="configGeolocationLat">Vĩ độ:</label>
-          <input
-            type="number"
-            id="configGeolocationLat"
-            class="config-input"
-            step="any"
-          /><br />
-          <label for="configGeolocationLon">Kinh độ:</label>
-          <input
-            type="number"
-            id="configGeolocationLon"
-            class="config-input"
-            step="any"
-          /><br />
-          <label for="configGeolocationAccuracy">Độ chính xác (mét):</label>
-          <input
-            type="number"
-            id="configGeolocationAccuracy"
-            class="config-input"
-            min="0"
-          /><br />
-        </div>
-
-        <div class="config-section">
-          <h3>Proxy đã lưu (sẽ ghi đè nếu chọn)</h3>
+          <h3>Gán Proxy</h3>
+          <p>Chọn một proxy đã lưu để sử dụng cho profile này.</p>
           <select id="configProxyName" class="config-input">
             <option value="">Không dùng Proxy</option>
-            <!-- Options sẽ được thêm bằng JS --></select
-          ><br />
+          </select>
           <p class="note">
-            Múi giờ và Locale của Proxy (nếu có) sẽ ưu tiên hơn cấu hình ở trên
-            khi mở trình duyệt.
+            Lưu ý: Múi giờ và vị trí của proxy sẽ được ưu tiên sử dụng khi mở
+            trình duyệt.
           </p>
         </div>
 
-        <div class="config-section">
-          <h3>Chromium Arguments (Dòng lệnh CLI)</h3>
-          <textarea
-            id="configChromiumArgs"
-            class="config-input"
-            rows="5"
-            placeholder="Mỗi dòng một cờ CLI, ví dụ: &#10;--disable-gpu&#10;--use-fake-location"
-          ></textarea
-          ><br />
-        </div>
-
-        <div class="config-section">
-          <h3>Initial JavaScript Scripts (Tiêm script)</h3>
-          <textarea
-            id="configInitScripts"
-            class="config-input"
-            rows="10"
-            placeholder="Mỗi script một dòng, ví dụ: &#10;Object.defineProperty(navigator, 'webdriver', { get: () => false });"
-          ></textarea
-          ><br />
-        </div>
-
         <button id="saveProfileConfigBtn">Lưu Cấu hình</button>
-        <p id="configMessage"></p>
+        <p id="configMessage" class="message"></p>
       </div>
     </div>
 
