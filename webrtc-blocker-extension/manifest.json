@@ -1,0 +1,19 @@
+{
+  "name": "WebRTC Blocker",
+  "version": "1.0",
+  "manifest_version": 3,
+  "description": "Blocks WebRTC completely to prevent IP leaks",
+  "permissions": ["privacy", "webRequest", "webRequestBlocking"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content-script.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  "host_permissions": ["<all_urls>"]
+}

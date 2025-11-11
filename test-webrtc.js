@@ -1,18 +1,24 @@
-// test-webrtc-chrome.js
-const { chromium } = require("playwright");
+// test-webrtc-final.js
+const chromium = require("@sparticuz/chromium-min");
+const { chromium: playwright } = require("playwright-core");
 
-async function runTest() {
+async function runFinalTest() {
   console.log("=============================================");
-  console.log("== BẮT ĐẦU BÀI TEST VỚI GOOGLE CHROME CÓ SẴN ==");
+  console.log("== BẮT ĐẦU BÀI TEST CUỐI CÙNG VỚI CHROMIUM-MIN ==");
   console.log("=============================================");
 
   let browser;
   try {
-    browser = await chromium.launch({
+    // Lấy đường dẫn thực thi từ @sparticuz/chromium-min
+    const executablePath = await chromium.executablePath();
+
+    // Khởi chạy trình duyệt bằng playwright-core
+    browser = await playwright.launch({
+      // Sử dụng trình duyệt đã được tối ưu hóa
+      executablePath: executablePath,
       headless: false,
-      // Yêu cầu Playwright sử dụng Google Chrome đã cài đặt trên máy bạn
-      channel: "chrome",
-      args: ["--force-webrtc-ip-handling-policy=disable_non_proxied_udp"],
+      // Thêm các cờ mặc định của chromium-min, trong đó đã có sẵn các cờ chống rò rỉ
+      args: chromium.args,
     });
 
     const page = await browser.newPage();
@@ -36,4 +42,4 @@ async function runTest() {
   }
 }
 
-runTest();
+runFinalTest();

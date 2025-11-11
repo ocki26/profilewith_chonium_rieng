@@ -136,6 +136,7 @@ ipcMain.handle("create-profile", async (event, { profileName, proxyName }) => {
     };
   }
 });
+
 ipcMain.handle("get-profiles", async () => {
   ensureDirectory(PROFILES_DIR);
   try {
@@ -149,6 +150,7 @@ ipcMain.handle("get-profiles", async () => {
     return [];
   }
 });
+
 ipcMain.handle("delete-profile", async (event, profileName) => {
   if (!profileName) return { success: false, message: "Invalid profile name." };
   const profilePath = path.join(PROFILES_DIR, profileName);
@@ -172,6 +174,7 @@ ipcMain.handle("delete-profile", async (event, profileName) => {
     };
   }
 });
+
 ipcMain.handle("get-profile-config", async (event, profileName) => {
   const configFile = path.join(PROFILES_DIR, profileName, "config.json");
   if (fs.existsSync(configFile)) {
@@ -184,6 +187,7 @@ ipcMain.handle("get-profile-config", async (event, profileName) => {
   }
   return { success: false, message: "Profile config not found." };
 });
+
 ipcMain.handle(
   "update-profile-config",
   async (event, profileName, newConfigData) => {
@@ -287,6 +291,9 @@ ipcMain.handle("open-browser", async (event, profileName, url) => {
       finalLocale.split("-")[0]
     };q=0.9`;
 
+    // Đường dẫn đến extension WebRTC Blocker
+    const extensionPath = path.join(__dirname, "webrtc-blocker-extension");
+
     browserContext = await chromium.launchPersistentContext(userDataDir, {
       headless: false,
       proxy: playwrightProxyConfig,
@@ -302,143 +309,259 @@ ipcMain.handle("open-browser", async (event, profileName, url) => {
         ...fingerprintData.headers,
         "accept-language": acceptLanguageHeader,
       },
-      // --- LỚP BẢO VỆ 2: CỜ DÒNG LỆNH ---
+      // --- LỚP BẢO VỆ 2: CỜ DÒNG LỆNH + EXTENSION ---
       args: [
+        `--disable-extensions-except=${extensionPath}`,
+        `--load-extension=${extensionPath}`,
         "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
-        "--disable-features=WebRtcHideLocalIpsWithMdns",
+        "--disable-features=WebRtcHideLocalIpsWithMdns,WebRTC",
         "--disable-blink-features=AutomationControlled",
         "--no-first-run",
         "--no-default-browser-check",
+        "--disable-webrtc",
+        "--block-new-web-contents",
       ],
       ignoreDefaultArgs: ["--enable-automation"],
     });
 
+    // ======================================================
+    // HÀM BẢO VỆ WEBRTC NÂNG CAO - 3 LỚP BẢO VỆ
+    // ======================================================
+    const applyEnhancedWebRTCProtection = async (
+      targetPage,
+      protectionData
+    ) => {
+      // Lớp bảo vệ 1: Init Script
+      await targetPage.addInitScript(
+        (args) => {
+          const { screen, navigator, videoCard, finalLocale } = args;
+
+          console.log("🛡️ Applying ENHANCED WebRTC protection to page...");
+
+          // --- VÔ HIỆU HÓA WEBRTC HOÀN TOÀN ---
+          const webRTCClasses = [
+            "RTCPeerConnection",
+            "webkitRTCPeerConnection",
+            "mozRTCPeerConnection",
+            "RTCSessionDescription",
+            "RTCIceCandidate",
+            "RTCDataChannel",
+          ];
+
+          webRTCClasses.forEach((className) => {
+            Object.defineProperty(window, className, {
+              get: () => {
+                console.warn(`🚫 ${className} is disabled`);
+                return undefined;
+              },
+              configurable: false,
+              enumerable: true,
+            });
+          });
+
+          // Vô hiệu hóa hoàn toàn mediaDevices
+          Object.defineProperty(navigator, "mediaDevices", {
+            get: () => ({
+              getUserMedia: () => Promise.reject(new Error("WebRTC blocked")),
+              enumerateDevices: () => Promise.resolve([]),
+              getSupportedConstraints: () => ({}),
+            }),
+            configurable: false,
+            enumerable: true,
+          });
+
+          // Vô hiệu hóa các hàm getUserMedia
+          ["getUserMedia", "webkitGetUserMedia", "mozGetUserMedia"].forEach(
+            (method) => {
+              Object.defineProperty(navigator, method, {
+                get: () => () => Promise.reject(new Error("WebRTC blocked")),
+                configurable: false,
+              });
+            }
+          );
+
+          // --- FINGERPRINT BẢO VỆ ---
+          Object.defineProperty(navigator, "languages", {
+            get: () => [finalLocale, finalLocale.split("-")[0]],
+            configurable: false,
+          });
+
+          Object.defineProperty(window.screen, "width", {
+            value: Math.round(screen.width),
+            configurable: false,
+          });
+
+          Object.defineProperty(window.screen, "height", {
+            value: Math.round(screen.height),
+            configurable: false,
+          });
+
+          Object.defineProperty(window.screen, "availWidth", {
+            value: Math.round(screen.availWidth),
+            configurable: false,
+          });
+
+          Object.defineProperty(window.screen, "availHeight", {
+            value: Math.round(screen.availHeight),
+            configurable: false,
+          });
+
+          Object.defineProperty(window.screen, "colorDepth", {
+            value: screen.colorDepth,
+            configurable: false,
+          });
+
+          Object.defineProperty(window.screen, "pixelDepth", {
+            value: screen.pixelDepth,
+            configurable: false,
+          });
+
+          Object.defineProperty(navigator, "deviceMemory", {
+            value: navigator.deviceMemory,
+            configurable: false,
+          });
+
+          Object.defineProperty(navigator, "hardwareConcurrency", {
+            value: navigator.hardwareConcurrency,
+            configurable: false,
+          });
+
+          Object.defineProperty(navigator, "platform", {
+            value: navigator.platform,
+            configurable: false,
+          });
+
+          // WebGL fingerprint
+          const getParameter = WebGLRenderingContext.prototype.getParameter;
+          WebGLRenderingContext.prototype.getParameter = function (parameter) {
+            if (parameter === 37445) {
+              return videoCard.vendor;
+            }
+            if (parameter === 37446) {
+              return videoCard.renderer;
+            }
+            return getParameter.apply(this, arguments);
+          };
+
+          // Canvas fingerprint noise
+          const originalGetImageData =
+            CanvasRenderingContext2D.prototype.getImageData;
+          CanvasRenderingContext2D.prototype.getImageData = function (...args) {
+            const imageData = originalGetImageData.apply(this, args);
+            const randomPixel = Math.floor(
+              Math.random() * (imageData.data.length / 4)
+            );
+            const blueChannelIndex = randomPixel * 4 + 2;
+            imageData.data[blueChannelIndex] =
+              (imageData.data[blueChannelIndex] + 1) % 256;
+            return imageData;
+          };
+
+          // Audio fingerprint noise
+          const originalGetChannelData = AudioBuffer.prototype.getChannelData;
+          AudioBuffer.prototype.getChannelData = function (...args) {
+            const channelData = originalGetChannelData.apply(this, args);
+            const randomIndex = Math.floor(Math.random() * channelData.length);
+            channelData[randomIndex] =
+              channelData[randomIndex] +
+              0.0000001 * (Math.random() > 0.5 ? 1 : -1);
+            return channelData;
+          };
+
+          console.log("✅ ENHANCED WebRTC protection applied successfully");
+        },
+        {
+          screen: protectionData.screen,
+          navigator: protectionData.navigator,
+          videoCard: protectionData.videoCard,
+          finalLocale: protectionData.finalLocale,
+        }
+      );
+
+      // Lớp bảo vệ 2: Chặn WebRTC network requests
+      await targetPage.route(/stun:|turn:|stuns:|turns:/, (route) => {
+        console.log("🚫 Blocked WebRTC server:", route.request().url());
+        route.abort();
+      });
+    };
+
+    // ======================================================
+    // ÁP DỤNG BẢO VỆ CHO TRANG ĐẦU TIÊN
+    // ======================================================
     const page = browserContext.pages().length
       ? browserContext.pages()[0]
       : await browserContext.newPage();
 
-    await page.addInitScript(
-      (args) => {
-        const { screen, navigator, videoCard, finalLocale } = args;
+    const protectionData = {
+      screen: fingerprint.screen,
+      navigator: fingerprint.navigator,
+      videoCard: fingerprint.videoCard,
+      finalLocale: finalLocale,
+    };
 
-        // --- LỚP BẢO VỆ 3: VÔ HIỆU HÓA API ---
-        Object.defineProperty(navigator, "rtcPeerConnection", {
-          get: () => undefined,
-          enumerable: true,
+    await applyEnhancedWebRTCProtection(page, protectionData);
+    console.log(`✅ Applied ENHANCED WebRTC protection to initial page`);
+
+    // ======================================================
+    // QUAN TRỌNG: ÁP DỤNG BẢO VỆ CHO MỌI TRANG MỚI + POPUP
+    // ======================================================
+    browserContext.on("page", async (newPage) => {
+      console.log(
+        `🔄 New page detected, applying ENHANCED WebRTC protection...`
+      );
+
+      try {
+        // Áp dụng bảo vệ ngay lập tức
+        await applyEnhancedWebRTCProtection(newPage, protectionData);
+        console.log(`✅ Applied ENHANCED WebRTC protection to new page`);
+
+        // Kiểm tra WebRTC status sau khi page load
+        await newPage.waitForLoadState("domcontentloaded");
+        const webrtcStatus = await newPage.evaluate(() => {
+          return {
+            RTCPeerConnection: typeof window.RTCPeerConnection,
+            webkitRTCPeerConnection: typeof window.webkitRTCPeerConnection,
+            mediaDevices: typeof navigator.mediaDevices,
+            getUserMedia: typeof navigator.getUserMedia,
+            connection:
+              typeof window.RTCPeerConnection === "function"
+                ? "❌ LEAK DETECTED"
+                : "✅ BLOCKED",
+          };
         });
-        Object.defineProperty(window, "RTCPeerConnection", {
-          get: () => undefined,
-          enumerable: true,
-        });
-        Object.defineProperty(window, "webkitRTCPeerConnection", {
-          get: () => undefined,
-          enumerable: true,
-        });
-        Object.defineProperty(window, "mozRTCPeerConnection", {
-          get: () => undefined,
-          enumerable: true,
-        });
-        Object.defineProperty(navigator, "getUserMedia", {
-          get: () => undefined,
-          enumerable: true,
-        });
-        Object.defineProperty(navigator, "webkitGetUserMedia", {
-          get: () => undefined,
-          enumerable: true,
-        });
-        Object.defineProperty(navigator, "mozGetUserMedia", {
-          get: () => undefined,
-          enumerable: true,
-        });
-        if (navigator.mediaDevices) {
-          Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
-            get: () => undefined,
-            enumerable: true,
-          });
+
+        console.log("🔍 WebRTC Status on new page:", webrtcStatus);
+
+        // Nếu vẫn phát hiện WebRTC, thử lại
+        if (webrtcStatus.RTCPeerConnection !== "undefined") {
+          console.warn("⚠️ WebRTC still detected, reapplying protection...");
+          await applyEnhancedWebRTCProtection(newPage, protectionData);
         }
-
-        // Các đoạn code giả mạo fingerprint khác
-        Object.defineProperty(navigator, "languages", {
-          get: () => [finalLocale, finalLocale.split("-")[0]],
-        });
-        Object.defineProperty(window.screen, "width", {
-          value: Math.round(screen.width),
-        });
-        Object.defineProperty(window.screen, "height", {
-          value: Math.round(screen.height),
-        });
-        Object.defineProperty(window.screen, "availWidth", {
-          value: Math.round(screen.availWidth),
-        });
-        Object.defineProperty(window.screen, "availHeight", {
-          value: Math.round(screen.availHeight),
-        });
-        Object.defineProperty(window.screen, "colorDepth", {
-          value: screen.colorDepth,
-        });
-        Object.defineProperty(window.screen, "pixelDepth", {
-          value: screen.pixelDepth,
-        });
-        Object.defineProperty(navigator, "deviceMemory", {
-          value: navigator.deviceMemory,
-        });
-        Object.defineProperty(navigator, "hardwareConcurrency", {
-          value: navigator.hardwareConcurrency,
-        });
-        Object.defineProperty(navigator, "platform", {
-          value: navigator.platform,
-        });
-
-        const getParameter = WebGLRenderingContext.prototype.getParameter;
-        WebGLRenderingContext.prototype.getParameter = function (parameter) {
-          if (parameter === 37445) {
-            return videoCard.vendor;
-          }
-          if (parameter === 37446) {
-            return videoCard.renderer;
-          }
-          return getParameter.apply(this, arguments);
-        };
-
-        // Thêm nhiễu cho Canvas & Audio
-        const originalGetImageData =
-          CanvasRenderingContext2D.prototype.getImageData;
-        CanvasRenderingContext2D.prototype.getImageData = function (...args) {
-          const imageData = originalGetImageData.apply(this, args);
-          const randomPixel = Math.floor(
-            Math.random() * (imageData.data.length / 4)
-          );
-          const blueChannelIndex = randomPixel * 4 + 2;
-          imageData.data[blueChannelIndex] =
-            (imageData.data[blueChannelIndex] + 1) % 256;
-          return imageData;
-        };
-        const originalGetChannelData = AudioBuffer.prototype.getChannelData;
-        AudioBuffer.prototype.getChannelData = function (...args) {
-          const channelData = originalGetChannelData.apply(this, args);
-          const randomIndex = Math.floor(Math.random() * channelData.length);
-          channelData[randomIndex] =
-            channelData[randomIndex] +
-            0.0000001 * (Math.random() > 0.5 ? 1 : -1);
-          return channelData;
-        };
-      },
-      {
-        screen: fingerprint.screen,
-        navigator: fingerprint.navigator,
-        videoCard: fingerprint.videoCard,
-        finalLocale: finalLocale,
+      } catch (error) {
+        console.error(`❌ Failed to apply protection to new page:`, error);
       }
-    );
+    });
 
+    // Chuyển đến URL đích
     await page.goto(targetUrl);
+    console.log(`🌐 Navigated to: ${targetUrl}`);
+
+    // Thêm sự kiện để log khi có popup
+    browserContext.on("popup", async (popupPage) => {
+      console.log(`🪟 Popup detected, applying protection...`);
+      await applyEnhancedWebRTCProtection(popupPage, protectionData);
+    });
 
     browserContext.on("close", () => {
-      console.log(`Browser context for profile '${profileName}' closed.`);
+      console.log(`🔚 Browser context for profile '${profileName}' closed.`);
     });
+
     return { success: true, message: `Browser for '${profileName}' opened.` };
   } catch (error) {
-    console.error(`Error opening browser for profile ${profileName}:`, error);
+    console.error(
+      `❌ Error opening browser for profile ${profileName}:`,
+      error
+    );
     if (browserContext) {
       await browserContext
         .close()
@@ -456,6 +579,7 @@ ipcMain.handle("get-proxies", async () => {
   if (!proxyStore) return [];
   return proxyStore.get("list", []);
 });
+
 ipcMain.handle("add-proxy", async (event, proxyConfig) => {
   if (!proxyStore) return { success: false, message: "Proxy store not ready." };
   let proxies = proxyStore.get("list", []);
@@ -482,6 +606,7 @@ ipcMain.handle("add-proxy", async (event, proxyConfig) => {
   proxyStore.set("list", proxies);
   return { success: true, message: `Proxy '${proxyConfig.name}' added.` };
 });
+
 ipcMain.handle("update-proxy", async (event, oldName, newConfig) => {
   if (!proxyStore) return { success: false, message: "Proxy store not ready." };
   let proxies = proxyStore.get("list", []);
@@ -521,6 +646,7 @@ ipcMain.handle("update-proxy", async (event, oldName, newConfig) => {
   proxyStore.set("list", proxies);
   return { success: true, message: `Proxy '${newConfig.name}' updated.` };
 });
+
 ipcMain.handle("delete-proxy", async (event, proxyName) => {
   if (!proxyStore) return { success: false, message: "Proxy store not ready." };
   let proxies = proxyStore.get("list", []);
